@@ -52,6 +52,7 @@ class VideoFrameDataset(Dataset):
         
         if not ret:
             # Return a blank frame or handle error if frame reading fails
+            print(f"Warning: Could not read frame at index {idx}. Returning blank frame.")
             return torch.zeros((3, self.height, self.width)), idx
 
         # OpenCV reads in BGR format; convert to RGB
