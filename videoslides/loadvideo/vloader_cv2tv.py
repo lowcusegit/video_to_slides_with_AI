@@ -69,3 +69,27 @@ class VideoFrameDataset(Dataset):
     def __del__(self):
         if self.cap is not None:
             self.cap.release()
+
+def batch_contrast(x:torch.Tensor)->torch.Tensor:
+    # batch_size=x.shape[0]
+    x= torch.abs(x[1::2,...]-x[0:-1:2,...])
+    return x
+
+def batch_avg(x:torch.Tensor, n=2)->torch.Tensor:
+    """
+    args:
+    x (torch.Tensor) : input tesor in the shape (batch_size, feature) or (batch_size, channel,...)
+    n (int, optional) : n samples for each mean, unless the bach 
+    return:
+    x (torch.Tensor) : output tesor in the shape (reduced_size, feature) or (reduced_size, channel,...)
+    """
+    batch_size=x.shape[0]
+    # when it is not for expected average 
+    if batch_size < n:
+        # not enough for average
+        x = torch.mean(x ,dim=0, keepdim=True) #if n>=2 else x
+        return x
+    reduced_size = batch_size // n
+    x = x[:(reduced_size*n),...].reshape( tuple([reduced_size,n] + list(x.shape[1:]) ) ).mean(dim=1, keepdim=False )
+    return x
+    
