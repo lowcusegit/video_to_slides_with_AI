@@ -1,8 +1,10 @@
-import os, time
+import os #, time
 import cv2
 import numpy as np
-
-from io import BytesIO  # or from io import StringIO for text-based images
+# Producer-Consumer Pattern for I/O-bound tasks like video frame reading and processing
+import threading
+import queue
+# from io import BytesIO  # or from io import StringIO for text-based images
 
 
 def recursive_list_file_paths(PATH, extension=[]):
@@ -30,71 +32,113 @@ def video_info(video_path):
     return v_info
 
 # load video frames and identify changes
-def cap_frame_change(video_path, pool=None):
+# Optimized frame change detection using a Producer-Consumer pattern.
+# - Producer Thread: Decodes, Grayscales, and Resizes frames.
+# - Consumer Thread: Calculates differences and stores results.
+# - Decouples I/O (Disk/Decoding) from CPU (Analysis).
+def cap_frame_change(video_path, pool=None, v_info=None, next_frame=1):
     """
     Args:
     video_path : path of a video file
     pool (tuple): H x W
+    v_info (dict): Video information dictionary with keys 'frame_count', 'fps', 'width', 'height'
+    next_frame (int): Step size for frame sampling (e.g., 1 for every frame, 2 for every other frame)
+    Returns:
+    frame_change_array: array of shape (frames, features)
     """
     # Open the video file
     video = cv2.VideoCapture(video_path)
-    frames = []
-    # frames = {'changes':[], 'frames':[]}
-    success, frame = video.read()
-    # frame=frame.astype(np.int16)
+    if not video.isOpened():
+        print(f"Could not open video file: {video_path}")
+        return np.array([])
+
+    # 1. Metadata setup
+    if v_info is None:
+        v_info = video_info(video_path)
+    total_frames = v_info["frame_count"]
+    width = v_info["width"]
+    height = v_info["height"]
+
+    if not( isinstance(next_frame, int) ) or (next_frame < 1):
+        print(f"Invalid next_frame value: {next_frame}. It should be a positive integer. Defaulting to 1.")
+        next_frame = 1
+    total_frames = (total_frames + next_frame - 1) // next_frame  # Adjust total frames based on sampling step
+    # success, frame = video.read()
     # frame (H,W,BGR)
 
-    if pool is not None:
-        padding = (
-            (0, (pool[0]-(frame.shape[0]%pool[0]))%pool[0] ),
-            (0, (pool[1]-(frame.shape[1]%pool[1]))%pool[1] )
-        )
-        padding = None if np.sum(padding)==0 else padding
-        reshape=(frame.shape[0]//pool[0], pool[0], frame.shape[1]//pool[1], pool[1] ) if (
-            padding is None
-        ) else ((frame.shape[0]+padding[0][1])//pool[0], pool[0], (frame.shape[1]+padding[1][1])//pool[1], pool[1] )
+    pool_h, pool_w = pool
+    target_w, target_h = width // pool_w, height // pool_h
     
-    # Iterate over each frame in the video
-    if pool is not None:
-        while success:
-            # Append the current frame to the list
-            last_frame = frame
-            # Read the next frame
-            success, frame = video.read()
-            if success:
-                # evaluate changes of frames
-                # frame=frame.astype(np.int16)
-                frame_diff = cv2.absdiff(last_frame, frame).sum(axis=-1, dtype=np.int16) if padding is None else np.pad(
-                    cv2.absdiff(last_frame, frame).sum(axis=-1, dtype=np.int16), padding, 'constant', constant_values=0 )
-                
-                frame_diff=frame_diff.reshape(
-                    reshape,
-                    order='C')
-                max_diff = frame_diff.max(axis=(1,3)).flatten()
+    # Pre-allocate results array
+    out_changes = np.zeros((max(0, total_frames), target_w * target_h), dtype=np.uint8)
+    
+    # Thread-safe queue for pre-processed frames
+    # Limit maxsize to prevent memory bloat if the producer is much faster than consumer
+    frame_queue = queue.Queue(maxsize=128) 
+    
+    # Define the Producer function
+    def frame_producer(cap, q, t_w, t_h, n_f):
+        f_count = 0
+        while True:
+            # OPTIMIZATION: read frames sequentially and skip as needed.
+            # This avoids the overhead of random access and allows for more efficient decoding.
+            # This is especially beneficial when skipping a few frames (e.g. <30)
+            # cap.set(cv2.CAP_PROP_POS_FRAMES, f_count)
+            f_count += n_f
+            success, frame = cap.read()
+            if not success:
+                q.put(None) # Sentinel value to signal end of video
+                break
+            
+            # OPTIMIZATION: Process at the source (Producer side)
+            # This minimizes the amount of data sent through the queue (RAM)
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            small = cv2.resize(gray, (t_w, t_h), interpolation=cv2.INTER_AREA)
+            
+            # Put the small, processed frame into the queue
+            q.put(small)
 
-            frames.append(max_diff)
+            for _ in range(n_f - 1):  # Skip the next n_f-1 frames
+                if not cap.grab(): # grab() decodes the bitstream but skips pixel processing
+                    q.put(None)  # Sentinel value to signal end of video
+                    break
+        cap.release()
 
-    else:
-        while success:
-            # Append the current frame to the list
-            last_frame = frame
-            # Read the next frame
-            success, frame = video.read()
-            if success:
-                # evaluate changes of frames
-                # frame=frame.astype(np.int16)
-                frame_diff = cv2.absdiff(last_frame, frame).sum(axis=-1, dtype=np.int16) # sum change over pixel over rgb channels
+    # 2. Start the Producer Thread
+    producer_thread = threading.Thread(
+        target=frame_producer, 
+        args=(video, frame_queue, target_w, target_h, next_frame),
+        daemon=True
+    )
+    producer_thread.start()
 
-                # None then no pooling/ no dimension reduction
-                max_diff = frame_diff.flatten()
+    # 3. Consumer Logic (Main Thread)
+    count = 1
+    prev_small = frame_queue.get() # Get the first frame
+    
+    if prev_small is None:
+        return np.array([])
 
-            frames.append(max_diff)
+    while True:
+        curr_small = frame_queue.get()
+        
+        if curr_small is None: # Check for sentinel
+            break
+        
+        # Calculate difference (CPU bound)
+        diff = cv2.absdiff(prev_small, curr_small)
+        
+        # Store in pre-allocated array
+        if count < out_changes.shape[0]:
+            out_changes[count] = diff.flatten()
+        
+        prev_small = curr_small
+        count += 1
 
-    frames=np.stack(frames, axis=0)
-
-    # Release the video capture object
-    video.release()
-    return frames
+    producer_thread.join()
+    
+    # Trim in case frame count was slightly off
+    return out_changes[:count]
 
 def cap_frame(video_path, pool=None):
     """
@@ -150,9 +194,13 @@ def weighted_change(frame_change_array, stable_frame=15, threshold_pix=1.0, thre
     stable_frame (optional): number of frames before  a frame to evaluate the stability of pixels/features
     threshold_pix (optional): max changes of pixels/features considered as unchange
     threshold_count (optional): min count of unchange considered as stable
+    Returns:
+    weighted_frame_change_array: array of shape (frames,), i.e. remain length, but reduce features 
     """
     length=frame_change_array.shape[0]
+    stable_frame_mask=np.full(frame_change_array.shape, True, dtype=bool)
+
     idx=np.arange(length - stable_frame).reshape(-1,1) + np.arange(stable_frame).reshape(1,-1)
-    stable_frame_mask= np.sum( (frame_change_array[idx,:] <= threshold_pix), axis=1 ) >= threshold_count
-    weighted_frame_change_array = np.sum(frame_change_array[ int(stable_frame):, :] * stable_frame_mask, axis=1)
+    stable_frame_mask[int(stable_frame):,:]= np.sum( (frame_change_array[idx,:] <= threshold_pix), axis=1 ) >= threshold_count
+    weighted_frame_change_array = np.sum(frame_change_array * stable_frame_mask, axis=1, dtype=np.float32)
     return weighted_frame_change_array

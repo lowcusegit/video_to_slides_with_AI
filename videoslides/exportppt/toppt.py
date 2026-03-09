@@ -1,4 +1,4 @@
-import os, time
+import os #, time
 import cv2
 import numpy as np
 from scipy import signal
@@ -6,9 +6,6 @@ from pptx import Presentation
 from pptx.util import Inches
 from io import BytesIO  # or from io import StringIO for text-based images
 from PIL import Image
-# import argparse # Added for command-line arguments
-# import concurrent
-# from concurrent.futures import ThreadPoolExecutor # Added for multi-threading
 
 
 def recursive_list_file_paths(PATH, extension=[]):
@@ -21,13 +18,19 @@ def recursive_list_file_paths(PATH, extension=[]):
     return result
 
 def moving_mean_std(array, d=10):
-    length=array.shape[0]
+    length = array.shape[0]
+    # keep the same length by padding mean and std at the beginning and end
+    begin_pad = int(d - d // 2)
+    end_pad = length - int(d // 2) + 1
+    mean_array = np.zeros_like(array)#array.mean(axis=0)
+    std_array = np.zeros_like(array)#*array.std(axis=0)
+
     if length<d:
         print("array too short")
         return None
     idx = np.arange(length-d+1).reshape(-1,1) + np.arange(d).reshape(1,-1)
-    mean_array=array[idx].mean(axis=1)
-    std_array=array[idx].std(axis=1)
+    mean_array[begin_pad:end_pad]=array[idx].mean(axis=1)
+    std_array[begin_pad:end_pad]=array[idx].std(axis=1)
     return mean_array, std_array
 
 def select_frames(all_frame_changes, height=None, distance=6):
