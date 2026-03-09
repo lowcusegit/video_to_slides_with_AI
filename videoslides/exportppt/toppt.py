@@ -6,9 +6,9 @@ from pptx import Presentation
 from pptx.util import Inches
 from io import BytesIO  # or from io import StringIO for text-based images
 from PIL import Image
-import argparse # Added for command-line arguments
-import concurrent
-from concurrent.futures import ThreadPoolExecutor # Added for multi-threading
+# import argparse # Added for command-line arguments
+# import concurrent
+# from concurrent.futures import ThreadPoolExecutor # Added for multi-threading
 
 
 def recursive_list_file_paths(PATH, extension=[]):
@@ -108,79 +108,3 @@ def create_powerpoint_with_select_frames(video_path, selection_frames, output_pp
 
     # Release the video capture object
     video.release()
-
-# def video_to_pptx_pipeline(video_path):
-#     print(video_path)
-#     export_dir = os.path.splitext(video_path)[0]
-#     output_pptx_name = export_dir + '.pptx'
-
-#     # analyze video
-#     t0=time.time()
-#     all_frame_changes = analyze_frames(video_path)
-#     all_frame_changes = np.array(all_frame_changes, dtype=np.float32)
-#     t1=time.time()
-#     print('analyze video: ', t1-t0)
-    
-#     # select frame
-#     t0=time.time()
-#     FRAME_RATE = 30
-#     distance = FRAME_RATE//5
-#     height = all_frame_changes[:,1].mean()+all_frame_changes[:,1].std()
-#     selection_frames = select_frames(all_frame_changes, height=height, distance=distance)
-#     t1=time.time()
-#     print('select frame: ', t1-t0)
-#     # v2.0
-#     # frame to pptx
-#     t0=time.time()
-#     create_powerpoint_with_select_frames(video_path, selection_frames, output_pptx_name=output_pptx_name)
-    
-#     t1=time.time()
-#     print('frames to pptx: ',t1-t0)
-
-def main():
-    parser = argparse.ArgumentParser(description="Analyze videos and generate PowerPoint presentations from selected frames.")
-    parser.add_argument("--video_folder", type=str, required=True,
-                        help="Path to the folder containing video files.")
-    parser.add_argument("--video_extension", type=str, nargs='+', default=['.mp4', '.MP4'],
-                        help="List of video file extensions to include (e.g., .mp4 .avi).")
-    parser.add_argument("--num_of_thread", type=int, default=2,
-                        help="Number of threads to use for parallel video processing.")
-    
-    args = parser.parse_args()
-
-    video_folder = args.video_folder
-    # Normalize extensions to lowercase for consistent matching
-    video_extension = [ext.lower() for ext in args.video_extension] 
-    num_of_thread = args.num_of_thread
-
-    print(f"Searching for videos in: {video_folder}")
-    print(f"Including extensions: {video_extension}")
-    print(f"Using {num_of_thread} threads.")
-
-    video_list = recursive_list_file_paths(
-        video_folder,
-        extension=video_extension)
-
-    if not video_list:
-        print(f"No video files found with extensions {video_extension} in {video_folder}")
-        return
-
-    print(f"Found {len(video_list)} video files.")
-
-    # Multi-threading the video_to_pptx_pipeline
-    with ThreadPoolExecutor(max_workers=num_of_thread) as executor:
-        # Submit each video processing task to the executor
-        futures = {executor.submit(video_to_pptx_pipeline, v): v for v in video_list}
-        
-        # Wait for tasks to complete and handle results/exceptions
-        for future in concurrent.futures.as_completed(futures):
-            video_path = futures[future]
-            try:
-                future.result() # This will re-raise any exception that occurred in the thread
-            except Exception as exc:
-                print(f'Error processing {video_path}: {exc}')
-            else:
-                print(f'Finished processing {video_path}.')
-
-if __name__ == '__main__':
-    main()
