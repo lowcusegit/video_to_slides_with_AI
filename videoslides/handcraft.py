@@ -41,7 +41,7 @@ def video_to_pptx_pipeline(video_file):
     print(f"  weighting video change time: {t3-t2}")
 
     # selecting frames for slides
-    selection_frames = select_frames(weighted_change_array, height=height, distance=fps*4)
+    selection_frames = select_frames(weighted_change_array, height=height, distance=fps/next_frame*5)
     if next_frame > 1:
         selection_frames = [f*next_frame for f in selection_frames] # convert back to original frame indices    
     t4=time.time()
