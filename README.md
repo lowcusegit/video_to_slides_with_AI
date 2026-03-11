@@ -15,15 +15,18 @@ Extracting frames from video to form a slide in my earlier repository video\_to\
 
 
 #### To tackle the problems
-  Done (for comparison)
- 	possible ways 1.:revise the handcraft features and rule-base algorithm that ignore moving objects
+  Done (1&2)
 
-  To do
- 	possible ways 2.: use pretrained computer vision model for features, e.g. Image Classification (ConvNext), Text Detection, Motion Detection
+ 	possible ways 1.:revise the handcraft features and rule-base algorithm that ignore moving objects (for comparison)
+
+ 	possible ways 2.: use pretrained computer vision model for features, e.g. Image Classification (ConvNext), Text Detection, Motion Detection. Finally, Text Detection method is selected. The model DB18 or DB50 can be found from https://opencv.org/blog/text-detection-and-removal-using-opencv/#h-text-detection-models-in-opencv
+
+  To/Not to do
 
  	possible ways 3.: use pretrained computer vision model for features and classification, e.g. CLIP-like models for zero-shot classification of transition slides
 
-  Unlike to do, due to limilted resources
+  Unlike to do, due to limilted resources:
+
  	possible ways 4.: use multimodal LLM that can "understand" the video and extract the slides (too expensive currently for long video). It is more reasonable to use LLM summarize to a list of points, instead of slides.
 
 
